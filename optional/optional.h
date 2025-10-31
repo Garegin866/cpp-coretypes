@@ -4,7 +4,6 @@
 #include <type_traits>
 
 namespace gx {
-    // Исключение этого типа должно генерироватся при обращении к пустому optional
     class BadOptionalAccess : public std::exception {
     public:
         using exception::exception;
@@ -92,14 +91,16 @@ namespace gx {
             return is_initialized_;
         }
 
-        // Операторы * и -> не должны делать никаких проверок на пустоту Optional.
-        // Эти проверки остаются на совести программиста
-        T& operator*() {
-            return *reinterpret_cast<T*>(data_);
+        T& operator*() & {
+            return reinterpret_cast<T&>(data_);
         }
-        const T& operator*() const {
-            return *reinterpret_cast<const T*>(data_);
+        T&& operator*() && {
+            return reinterpret_cast<T&&>(data_);
         }
+        const T& operator*() const& {
+            return reinterpret_cast<const T&>(data_);
+        }
+
         T* operator->() {
             return reinterpret_cast<T*>(data_);
         }
@@ -107,18 +108,28 @@ namespace gx {
             return reinterpret_cast<const T*>(data_);
         }
 
-        // Метод Value() генерирует исключение BadOptionalAccess, если Optional пуст
-        T& Value() {
+        T& Value() & {
             if (!is_initialized_) {
                 throw BadOptionalAccess();
             }
-            return **this;
+
+            return reinterpret_cast<T&>(data_);
         }
-        const T& Value() const {
+
+        const T& Value() const& {
+            if (!HasValue()) {
+                throw BadOptionalAccess();
+            }
+
+            return reinterpret_cast<const T&>(data_);
+        }
+
+        T&& Value() && {
             if (!is_initialized_) {
                 throw BadOptionalAccess();
             }
-            return **this;
+
+            return reinterpret_cast<T&&>(data_);
         }
 
         void Reset() {
@@ -128,9 +139,16 @@ namespace gx {
             }
         }
 
+        template <typename... Args>
+        void Emplace(Args&&... args) {
+            Reset();
+            new (data_) T(std::forward<decltype(args)>(args)...);
+            is_initialized_ = true;
+        }
+
     private:
-        // alignas нужен для правильного выравнивания блока памяти
         alignas(T) char data_[sizeof(T)];
         bool is_initialized_ = false;
     };
+
 }
